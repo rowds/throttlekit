@@ -10,9 +10,10 @@ permissions:
   contents: read
 
 jobs:
-  publish_to_test_pypi:
+  publish-pypi:
     name: Upload to Test PyPI
     runs-on: ubuntu-latest
+    environment: testpypi
     permissions:
       id-token: write
     steps:
