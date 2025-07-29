@@ -13,6 +13,8 @@ jobs:
   publish_to_test_pypi:
     name: Upload to Test PyPI
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
