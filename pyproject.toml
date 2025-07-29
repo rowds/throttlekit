@@ -9,6 +9,18 @@ license = "MIT"
 dependencies = [
     "typing-extensions>=4.0.0; python_version<'3.10'"
 ]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries"
+]
+
 
 [build-system]
 requires = ["uv_build>=0.8.3"]
@@ -17,6 +29,7 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 name = "throttlekit"
 path = "src"
+packages = ["throttlekit"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
