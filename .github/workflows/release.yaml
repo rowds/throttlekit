@@ -1,5 +1,9 @@
 name: release
 
+env:
+  PACKAGE_NAME: "throttlekit"
+  OWNER: "roudrasekhar"
+
 on:
   push:
     tags:
@@ -9,10 +13,6 @@ on:
       - "[0-9]+.[0-9]+.[0-9]+rc[0-9]+"
     branches:
       - "release/**"
-
-env:
-  PACKAGE_NAME: "throttlekit"
-  OWNER: "roudrasekhar"
 
 jobs:
   details:
