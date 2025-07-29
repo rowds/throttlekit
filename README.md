@@ -1,10 +1,10 @@
-# 🔄 aiothrottle
+# 🔄 throttlekit
 
 A lightweight, asyncio-based rate limiting library for Python that provides flexible and efficient rate limiting solutions.
 
 ## 📋 Overview
 
-**aiothrottle** offers two proven rate limiting algorithms:
+**throttlekit** offers two proven rate limiting algorithms:
 
 - **⚡ TokenBucketRateLimiter**: Allows controlled bursts of activity
 - **💧 LeakyBucketRateLimiter**: Enforces a strict, steady rate
@@ -24,20 +24,20 @@ Perfect for API throttling, web scrapers, background jobs, and queue management.
 ### Using uv (recommended)
 
 ```bash
-uv add aiothrottle
+uv add throttlekit
 ```
 
 ### Using pip
 
 ```bash
-pip install aiothrottle
+pip install throttlekit
 ```
 
 ## ✨ Quick Start
 
 ```python
 import asyncio
-from aiothrottle import TokenBucketRateLimiter
+from throttlekit import TokenBucketRateLimiter
 
 # Create a rate limiter (5 tokens, refill every second)
 limiter = TokenBucketRateLimiter(max_tokens=5, refill_interval=1.0)
@@ -74,7 +74,7 @@ asyncio.run(main())
 Allows bursts up to `max_tokens`, then refills at a steady rate.
 
 ```python
-from aiothrottle import TokenBucketRateLimiter
+from throttlekit import TokenBucketRateLimiter
 
 limiter = TokenBucketRateLimiter(
     max_tokens=10,           # Maximum burst size
@@ -94,7 +94,7 @@ limiter = TokenBucketRateLimiter(
 Processes requests at a fixed rate, queuing excess requests.
 
 ```python
-from aiothrottle import LeakyBucketRateLimiter
+from throttlekit import LeakyBucketRateLimiter
 
 limiter = LeakyBucketRateLimiter(
     rate=2.0,              # 2 requests per second
@@ -150,15 +150,15 @@ uv pip install pytest pytest-asyncio
 Run tests with coverage:
 
 ```bash
-pytest --cov=src/aiothrottle --cov-report=term-missing
+pytest --cov=src/throttlekit --cov-report=term-missing
 ```
 
 ## 📁 Project Structure
 
 ```tree
-aiothrottle/
+throttlekit/
 ├── src/
-│   └── aiothrottle/
+│   └── throttlekit/
 │       ├── __init__.py
 │       ├── limiter.py           # TokenBucketRateLimiter
 │       └── leaky_limiter.py     # LeakyBucketRateLimiter
@@ -182,4 +182,4 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for deta
 
 **⭐ Star this repo if you find it useful!**
 
-[Report Bug](https://github.com/rowds/aiothrottle/issues) • [Request Feature](https://github.com/rowds/aiothrottle/issues) • [Documentation](https://github.com/rowds/aiothrottle)
+[Report Bug](https://github.com/rowds/throttlekit/issues) • [Request Feature](https://github.com/rowds/throttlekit/issues) • [Documentation](https://github.com/rowds/throttlekit)

@@ -1,5 +1,5 @@
 [project]
-name = "aiothrottle"
+name = "throttlekit"
 version = "0.1.0"
 description = "Fast asyncio-compatible token bucket rate limiter"
 readme = "README.md"
@@ -15,7 +15,7 @@ requires = ["uv_build>=0.8.3"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-name = "aiothrottle"
+name = "throttlekit"
 path = "src"
 
 [tool.pytest.ini_options]

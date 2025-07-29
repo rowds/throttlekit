@@ -1,7 +1,7 @@
 import asyncio
 import pytest
 import pytest_asyncio
-from aiothrottle import LeakyBucketRateLimiter  # Adjust import path as needed
+from throttlekit import LeakyBucketRateLimiter  # Adjust import path as needed
 
 pytestmark = pytest.mark.asyncio
 

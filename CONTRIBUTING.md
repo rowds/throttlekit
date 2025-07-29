@@ -1,4 +1,4 @@
-# Contributing to aiothrottle
+# Contributing to throttlekit
 
 We welcome contributions! Here's how to get started:
 
@@ -15,8 +15,8 @@ To set up the project for development:
 1. **Clone the repository**:
 
    ```bash
-   git clone https://github.com/rowds/aiothrottle.git
-   cd aiothrottle
+   git clone https://github.com/rowds/throttlekit.git
+   cd throttlekit
    ```
 
 2. **Install dependencies**:
@@ -32,4 +32,4 @@ This will install all dependencies including development tools and testing frame
 Run tests with coverage:
 
 ```bash
-pytest --cov=src/aiothrottle --cov-report=term-missing
+pytest --cov=src/throttlekit --cov-report=term-missing

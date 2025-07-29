@@ -1,7 +1,7 @@
 import asyncio
 import pytest
 import pytest_asyncio
-from aiothrottle import TokenBucketRateLimiter
+from throttlekit import TokenBucketRateLimiter
 
 pytestmark = pytest.mark.asyncio
 
