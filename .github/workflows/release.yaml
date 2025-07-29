@@ -1,9 +1,5 @@
 name: release
 
-env:
-  PACKAGE_NAME: "throttlekit"
-  OWNER: "roudrasekhar"
-
 on:
   push:
     tags:
@@ -11,6 +7,12 @@ on:
       - "[0-9]+.[0-9]+.[0-9]+a[0-9]+"
       - "[0-9]+.[0-9]+.[0-9]+b[0-9]+"
       - "[0-9]+.[0-9]+.[0-9]+rc[0-9]+"
+
+  workflow_dispatch:
+
+env:
+  PACKAGE_NAME: "throttlekit"
+  OWNER: "roudrasekhar"
 
 jobs:
   details:
@@ -29,9 +31,9 @@ jobs:
             TAG_NAME=${GITHUB_REF#refs/tags/}
             NEW_VERSION=$(echo "$TAG_NAME" | awk -F'-' '{print $1}')
             SUFFIX=$(echo "$TAG_NAME" | grep -oP '[a-z]+[0-9]+' || echo "")
-            echo "new_version=$NEW_VERSION" >> $GITHUB_ENV
-            echo "suffix=$SUFFIX" >> $GITHUB_ENV
-            echo "tag_name=$TAG_NAME" >> $GITHUB_ENV
+            echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+            echo "suffix=$SUFFIX" >> "$GITHUB_OUTPUT"
+            echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
             echo "Version is $NEW_VERSION"
             echo "Suffix is $SUFFIX"
             echo "Tag name is $TAG_NAME"
@@ -58,16 +60,83 @@ jobs:
       - name: Compare versions and exit if not newer
         run: |
           NEW_VERSION="${{ needs.details.outputs.new_version }}"
-          echo "NEW_VERSION is $NEW_VERSION"
-          echo "LATEST_VERSION is $LATEST_VERSION"
-          if [ -z "$NEW_VERSION" ]; then
-            echo "NEW_VERSION is empty!"
-            exit 1
-          fi
-
           if [ "$(printf '%s\n' "$NEW_VERSION" "$LATEST_VERSION" | sort -rV | head -n1)" != "$NEW_VERSION" ]; then
             echo "The new version $NEW_VERSION is not greater than $LATEST_VERSION."
             exit 1
           else
             echo "New version $NEW_VERSION is valid."
           fi
+
+  setup_and_build:
+    needs: [details, check_pypi]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Set project version in pyproject.toml
+        run: |
+          sed -i "s/^version = \".*\"/version = \"${{ needs.details.outputs.new_version }}\"/" pyproject.toml
+
+      - name: Build with uv
+        run: |
+          uv build
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: dist
+          path: dist/
+
+  pypi_publish:
+    name: Upload release to PyPI
+    needs: [setup_and_build, details]
+    runs-on: ubuntu-latest
+    environment:
+      name: release
+    permissions:
+      id-token: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish distribution to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  github_release:
+    name: Create GitHub Release
+    needs: [setup_and_build, details]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: dist
+          path: dist/
+
+      - name: Create GitHub Release
+        run: |
+          gh release create "${{ needs.details.outputs.tag_name }}" dist/* \
+            --title "${{ needs.details.outputs.tag_name }}" \
+            --generate-notes
