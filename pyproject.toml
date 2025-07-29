@@ -1,0 +1,29 @@
+[project]
+name = "aiothrottle"
+version = "0.1.0"
+description = "Fast asyncio-compatible token bucket rate limiter"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name = "Roudrasekhar Majumder", email = "roudra25@gmail.com" }]
+license = "MIT"
+dependencies = [
+    "typing-extensions>=4.0.0; python_version<'3.10'"
+]
+
+[build-system]
+requires = ["uv_build>=0.8.3"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+name = "aiothrottle"
+path = "src"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.4.1",
+    "pytest-asyncio>=1.1.0",
+    "pytest-cov>=6.2.1"
+]
