@@ -4,28 +4,46 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Build Status](https://github.com/rowds/throttlekit/actions/workflows/test.yaml/badge.svg)](https://github.com/rowds/throttlekit/actions)
 
-A lightweight, high-performance, and feature-rich asyncio rate limiting library for Python. Fully supports local (in-memory) and distributed (Redis, SQL) deployments, with first-class support for FastAPI.
+A lightweight, high-performance, and feature-rich async rate limiting library for Python. Fully supports local (in-memory) and distributed (Redis, SQL) deployments, with first-class support for FastAPI and custom logging.
 
 ---
 
 ## 🚀 Key Features
 
-* ⚡ **Two Algorithms:** Token Bucket (bursts-tolerant) and Leaky Bucket / GCRA (steady pacing).
-* 🌐 **Distributed Support:** Redis (atomic Lua script) and SQL (Alchemy-compatible row-level locking).
-* 🛣️ **Multiple Usage Patterns:** Decorators (`@limit`), context managers (`async with`), or manual `.acquire()`.
-* ⚡ **FastAPI Ready:** Clean route dependencies (`Depends`) and global middleware options.
-* 🚦 **Concurrency Limits:** Enforce concurrent call limits alongside rate limits.
-* 🛡️ **Graceful Shutdown:** `stop()` method to cleanly cancel background tasks.
+* ⚡ **Two Powerful Algorithms:**
+  * **Token Bucket:** Perfect for allowing bursts of requests up to a maximum limit, refilled at a constant rate.
+  * **Leaky Bucket (GCRA):** Enforces a steady flow of traffic, smooth pacing, and rejects/delays bursts.
+* 🌐 **Distributed Coordination:** Share rate-limiting states across multiple instances/containers using:
+  * **Redis Backend:** High-performance, atomic, Lua-scripted rate limiting.
+  * **SQL Backend:** Database-backed rate limiting using SQLAlchemy async engine with row-level locking (supports PostgreSQL, MySQL, SQLite, etc.).
+* 🛣️ **FastAPI/Starlette Ready:** Easily rate limit web endpoints using:
+  * **Dependency Injection (`Depends`):** Route-specific rate limits.
+  * **Application Middleware:** Global, application-wide rate limits.
+  * **Blocking (Throttling) vs. Non-blocking (Immediate HTTP 429 Rejection)** modes.
+* 🚦 **Concurrency Limits:** Control the number of concurrent executions alongside rate limits.
+* 🪵 **Custom Logging Support:** Fully integrates with Python's built-in `logging.Logger` for monitoring rate-limiting operations.
+* 🛡️ **Clean Async Architecture:** Thread-safe, async-native, with graceful shutdowns via `.stop()`.
 
 ---
 
 ## ⚙️ Installation
 
+Install the core package or include optional dependencies depending on your storage backend:
+
 ```bash
-# Core in-memory limiters
+# Core package (in-memory limiters only)
 uv add throttlekit
 
-# With optional Redis / SQL / FastAPI support
+# With Redis support
+uv add "throttlekit[redis]"
+
+# With SQL/SQLAlchemy support
+uv add "throttlekit[sql]"
+
+# With FastAPI/Starlette support
+uv add "throttlekit[fastapi]"
+
+# Install everything
 uv add "throttlekit[redis,sql,fastapi]"
 ```
 
@@ -33,25 +51,43 @@ uv add "throttlekit[redis,sql,fastapi]"
 
 ## 🛠️ Usage Patterns
 
-Both local and distributed limiters support these three standard async patterns:
+All limiters (local and distributed) support three standard interaction patterns:
 
 ### 1️⃣ Decorator Pattern
+Decorate async functions to apply rate limits automatically. Supports static keys or dynamic callable keys:
+
 ```python
-# Rate limit dynamically by a callable key (useful for distributed limits)
-@limiter.limit(key=lambda request: request.headers.get("X-API-Key"), block=False)
-async def process_task(request):
-    return "succeeded"
+# Static key
+@limiter.limit(key="my-key", block=False)
+async def process_task():
+    return "success"
+
+# Dynamic key (receives the decorated function's arguments)
+@limiter.limit(key=lambda user_id, *args: f"user:{user_id}", block=True)
+async def fetch_user_data(user_id: int):
+    return {"data": "..."}
 ```
 
-### 2️⃣ Context Manager
+### 2️⃣ Context Manager Pattern
+Enforce limits cleanly within a code block:
+
 ```python
-async with limiter(key="my-bucket"):
-    result = await perform_action()
+# Using standard context manager
+async with limiter(key="my-key", block=True):
+    await do_some_work()
 ```
 
-### 3️⃣ Manual Control
+### 3️⃣ Manual Control Pattern
+Call `.acquire()` directly in your application code:
+
 ```python
-await limiter.acquire()
+# Acquire token manually (blocks until a token is available)
+await limiter.acquire("my-key")
+
+# Non-blocking check
+acquired = await limiter.acquire("my-key", block=False)
+if not acquired:
+    raise RuntimeError("Rate limit exceeded")
 ```
 
 ---
@@ -60,101 +96,249 @@ await limiter.acquire()
 
 ### 1. In-Memory Limiters (Single Instance)
 
-```python
-from throttlekit import TokenBucketRateLimiter, LeakyBucketRateLimiter
+Best for single-server processes where rate limiting state resides only in memory.
 
-# Token Bucket: 10 requests every 60 seconds with a concurrency limit of 5
-limiter = TokenBucketRateLimiter(max_tokens=10, refill_interval=60.0, concurrency_limit=5)
+#### Token Bucket (`TokenBucketRateLimiter`)
+Allows bursty traffic. You can optionally enforce a maximum concurrency limit.
+
+```python
+import logging
+from throttlekit import TokenBucketRateLimiter
+
+logger = logging.getLogger("my_app")
+
+# Refill 10 tokens every 60 seconds. Restrict concurrency to max 5 workers.
+limiter = TokenBucketRateLimiter(
+    max_tokens=10,
+    refill_interval=60.0,
+    concurrency_limit=5,
+    logger=logger
+)
+
+# You MUST start the background refill loop before using in-memory limiters
 await limiter.start()
 
-# Leaky Bucket: 2 requests per second max, queuing up to 100 requests
-leaky_limiter = LeakyBucketRateLimiter(rate=2.0, max_queue_size=100)
-await leaky_limiter.start()
+# Acquire tokens
+async with limiter:
+    await fetch_api_data()
 
-# Clean up on shutdown
+# Refund a token manually if an operation fails (optional)
+limiter.release_token()
+
+# Clean up / stop the background task gracefully on application shutdown
 await limiter.stop()
 ```
 
+#### Leaky Bucket (`LeakyBucketRateLimiter`)
+Enforces a smooth, consistent request rate. Requests are queued up to a maximum capacity.
+
+```python
+from throttlekit import LeakyBucketRateLimiter
+
+# Paced rate of 2 requests per second. Queue up to 100 requests.
+limiter = LeakyBucketRateLimiter(
+    rate=2.0,
+    max_queue_size=100
+)
+
+await limiter.start()
+
+# Paces execution: blocks if queue space is available; raises full queue exception if exceeded
+async with limiter:
+    await send_notification()
+
+await limiter.stop()
+```
+
+---
+
 ### 2. Distributed Limiters (Multi-Container Deployments)
+
+Best for microservices, Kubernetes pods, or multi-replica FastAPI nodes. State is persisted and synchronized through a shared backend.
+
+#### Step A: Configure the Backend
+
+##### Redis Backend (Recommended)
+Uses highly efficient, atomic Lua scripts.
 
 ```python
 import redis.asyncio as aioredis
-from throttlekit import DistributedTokenBucket, DistributedLeakyBucket, RedisBackend
+from throttlekit import RedisBackend
 
-redis_client = aioredis.from_url("redis://localhost")
+# Initialize async redis client
+redis_client = aioredis.from_url("redis://localhost:6379")
 backend = RedisBackend(redis_client)
-
-# Token Bucket (Redis-backed)
-tb_limiter = DistributedTokenBucket(backend, max_tokens=10, refill_interval=60.0)
-
-# Leaky Bucket (GCRA algorithm, Redis-backed)
-lb_limiter = DistributedLeakyBucket(backend, rate=5.0, max_queue_size=10)
 ```
 
-> [!NOTE]
-> For SQL databases (PostgreSQL, MySQL, SQLite), import and use `SQLBackend` configured with a SQLAlchemy `AsyncEngine`.
+##### SQL Backend (SQLAlchemy compatible)
+Supports PostgreSQL, MySQL, SQLite, etc. Uses row-level lock-based synchronization. Tables are automatically initialized.
+
+```python
+from sqlalchemy.ext.asyncio import create_async_engine
+from throttlekit import SQLBackend
+
+# Initialize SQLAlchemy async engine
+engine = create_async_engine("postgresql+asyncpg://user:pass@localhost/db")
+backend = SQLBackend(engine)
+```
+
+#### Step B: Instantiate the Distributed Limiter
+
+##### Distributed Token Bucket (`DistributedTokenBucket`)
+```python
+from throttlekit import DistributedTokenBucket
+
+# 10 tokens, refilling every 60 seconds.
+# The 'name' namespace separates keys in the shared storage backend.
+limiter = DistributedTokenBucket(
+    backend=backend,
+    max_tokens=10,
+    refill_interval=60.0,
+    name="api_user_limits"
+)
+
+# Enforce rate limit globally for user "user_123"
+await limiter.acquire(key="user_123", tokens=1, block=True)
+```
+
+##### Distributed Leaky Bucket (`DistributedLeakyBucket` - GCRA)
+```python
+from throttlekit import DistributedLeakyBucket
+
+# Paces at 5 requests per second, queue up to 10 requests.
+limiter = DistributedLeakyBucket(
+    backend=backend,
+    rate=5.0,
+    max_queue_size=10,
+    name="sms_pacing"
+)
+
+# Acquire space for phone number
+await limiter.acquire(key="+1234567890", block=True)
+```
 
 ---
 
 ## 🌐 FastAPI & Starlette Integration
 
-### 1️⃣ Route-level Dependency
-Use `FastAPIRateLimiter` to apply rates per route. Supports blocking (throttling) or returning `HTTP 429` immediately:
+`throttlekit` comes with complete support for FastAPI route dependencies (`Depends`) and global middleware.
+
+### 1️⃣ Route-level Dependency (`FastAPIRateLimiter`)
+Use `FastAPIRateLimiter` to apply custom rate limits to specific endpoints or routers.
 
 ```python
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
 from throttlekit.fastapi import FastAPIRateLimiter
 
 app = FastAPI()
 
-# block=False immediately rejects with HTTP 429 if the rate limit is exceeded
-@app.get("/data", dependencies=[Depends(FastAPIRateLimiter(tb_limiter, block=False))])
-async def get_data():
-    return {"status": "ok"}
+# Custom function to resolve user ID or IP globally
+def resolve_client_key(request: Request) -> str:
+    return request.headers.get("X-User-ID", request.client.host or "anonymous")
+
+# Route limited by dynamic key: 2 requests per 10 seconds max.
+# block=False returns HTTP 429 immediately if exceeded.
+@app.get(
+    "/expensive-endpoint",
+    dependencies=[
+        Depends(FastAPIRateLimiter(
+            limiter=tb_limiter,
+            block=False,
+            detail="Too many expensive requests. Please wait.",
+            key=resolve_client_key
+        ))
+    ]
+)
+async def read_expensive_data():
+    return {"data": "rich content"}
 ```
 
-### 2️⃣ Global Application Middleware
-Protect all routes globally at the application level:
+### 2️⃣ Global Application Middleware (`RateLimitMiddleware`)
+Protect the entire application under a global rate-limiting policy.
 
 ```python
+from fastapi import FastAPI
 from throttlekit.fastapi import RateLimitMiddleware
 
-app.add_middleware(RateLimitMiddleware, limiter=tb_limiter, block=False)
+app = FastAPI()
+
+# Enforce rate limits globally on all incoming paths
+app.add_middleware(
+    RateLimitMiddleware,
+    limiter=tb_limiter,
+    block=False,
+    detail="Global rate limit exceeded",
+    key=lambda req: req.client.host or "global"
+)
 ```
+
+> [!TIP]
+> Use `block=True` in both dependency and middleware modes to **throttle** requests (making them wait/queue in line until a token is refilled) instead of rejecting them with an HTTP 429 error.
 
 ---
 
-## 📁 Project Structure
+## ⚙️ Configuration Options Reference
 
-```tree
-throttlekit/
-├── src/
-│   └── throttlekit/
-│       ├── __init__.py
-│       ├── limiter.py           # In-memory Token Bucket
-│       ├── leaky_limiter.py     # In-memory Leaky Bucket
-│       ├── distributed.py       # Distributed Token & Leaky Buckets
-│       ├── fastapi.py           # FastAPI dependency and middleware
-│       └── backends/            # Storage backends
-│           ├── base.py
-│           ├── redis.py         # Redis Lua-based backend
-│           └── sql.py           # SQL/SQLAlchemy database backend
-├── tests/
-│   ├── test_token_bucket_limiter.py
-│   ├── test_leaky_bucket_limiter.py
-│   ├── test_fastapi.py
-│   └── test_distributed.py
-├── pyproject.toml
-└── README.md
+### In-Memory Limiters
+| Limiter Class | Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `TokenBucketRateLimiter` | `max_tokens` | `int` | *Required* | Max tokens the bucket can hold. |
+| | `refill_interval` | `float` | `1.0` | Duration (seconds) to refill the bucket to max capacity. |
+| | `concurrency_limit` | `Optional[int]` | `None` | Restricts concurrent active requests. |
+| | `logger` | `Optional[logging.Logger]` | `None` | Custom logger instance. |
+| `LeakyBucketRateLimiter` | `rate` | `float` | `1.0` | Target rate of requests per second. |
+| | `max_queue_size` | `int` | `100` | Max queued requests allowed before failing. |
+| | `logger` | `Optional[logging.Logger]` | `None` | Custom logger instance. |
+
+### Distributed Limiters
+| Limiter Class | Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `DistributedTokenBucket` | `backend` | `BaseBackend` | *Required* | RedisBackend or SQLBackend storage instance. |
+| | `max_tokens` | `int` | *Required* | Max tokens the bucket holds. |
+| | `refill_interval` | `float` | `1.0` | Time (seconds) to completely refill the bucket. |
+| | `name` | `str` | `"default"` | Unique namespace key for backend storage. |
+| | `logger` | `Optional[logging.Logger]` | `None` | Custom logger instance. |
+| `DistributedLeakyBucket` | `backend` | `BaseBackend` | *Required* | RedisBackend or SQLBackend storage instance. |
+| | `rate` | `float` | `1.0` | Requests allowed per second. |
+| | `max_queue_size` | `int` | `100` | Queue limit capacity (GCRA buffer size). |
+| | `name` | `str` | `"default"` | Unique namespace key for backend storage. |
+| | `logger` | `Optional[logging.Logger]` | `None` | Custom logger instance. |
+
+---
+
+## 🪵 Custom Logging
+
+`throttlekit` limiters support passing standard loggers. All internal debug, warning, and startup logs will flow through your logger instance:
+
+```python
+import logging
+from throttlekit import TokenBucketRateLimiter
+
+# Define a custom logging format
+logging.basicConfig(level=logging.DEBUG)
+custom_logger = logging.getLogger("throttlekit_custom")
+
+limiter = TokenBucketRateLimiter(
+    max_tokens=10, 
+    refill_interval=1.0, 
+    logger=custom_logger
+)
 ```
 
 ---
 
 ## 🧪 Testing
 
+We maintain 100% code coverage on the package modules. Run the test suite:
+
 ```bash
-uv pip install pytest pytest-asyncio pytest-cov
-pytest --cov=src/throttlekit --cov-report=term-missing
+# Run pytest with coverage reporting
+uv run pytest --cov=src/throttlekit --cov-report=term-missing
+```
+
+To run the integration tests targeting local Redis (at `localhost:6379`) and multiprocessing interpreters:
+```bash
+uv run pytest tests/test_integration.py
 ```
 
 ---
