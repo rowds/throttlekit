@@ -179,7 +179,7 @@ from throttlekit import SQLBackend
 
 # Initialize SQLAlchemy async engine
 engine = create_async_engine("postgresql+asyncpg://user:pass@localhost/db")
-backend = SQLBackend(engine)
+backend = SQLBackend(engine, schema="my_custom_schema")  # Optional schema argument
 ```
 
 #### Step B: Instantiate the Distributed Limiter
@@ -303,6 +303,14 @@ app.add_middleware(
 | | `max_queue_size` | `int` | `100` | Queue limit capacity (GCRA buffer size). |
 | | `name` | `str` | `"default"` | Unique namespace key for backend storage. |
 | | `logger` | `Optional[logging.Logger]` | `None` | Custom logger instance. |
+
+### Backends
+| Backend Class | Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `RedisBackend` | `redis_client` | `Redis` | *Required* | Active async Redis connection client. |
+| `SQLBackend` | `engine` | `AsyncEngine` | *Required* | Active SQLAlchemy async database engine. |
+| | `table_name` | `str` | `"throttlekit_buckets"` | Base name of the database tables. |
+| | `schema` | `Optional[str]` | `None` | Optional target database schema. |
 
 ---
 
