@@ -30,7 +30,8 @@ def get_free_port() -> int:
 def test_fastapi_server_integration():
     # Clean up Redis keys from previous runs using synchronous redis client
     r = redis.Redis(host="localhost", port=6379)
-    r.delete("throttlekit:fastapi_tb_integration:global")
+    for key in r.scan_iter("throttlekit:fastapi_tb_integration:*"):
+        r.delete(key)
     r.close()
 
     port = get_free_port()
@@ -111,9 +112,11 @@ def worker_task(success_counter, rate_limit_counter):
         # Non-blocking acquisition
         acquired = await limiter.acquire("global_mp_key", block=False)
         if acquired:
-            success_counter.value += 1
+            with success_counter.get_lock():
+                success_counter.value += 1
         else:
-            rate_limit_counter.value += 1
+            with rate_limit_counter.get_lock():
+                rate_limit_counter.value += 1
 
         await redis_client.aclose()
 
@@ -124,7 +127,8 @@ def worker_task(success_counter, rate_limit_counter):
 def test_multiprocessing_integration():
     # Clean up Redis keys from previous runs using synchronous redis client
     r = redis.Redis(host="localhost", port=6379)
-    r.delete("throttlekit:mp_tb_integration:global_mp_key")
+    for key in r.scan_iter("throttlekit:mp_tb_integration:*"):
+        r.delete(key)
     r.close()
 
     success_counter = multiprocessing.Value('i', 0)
