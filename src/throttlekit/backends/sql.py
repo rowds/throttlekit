@@ -1,4 +1,5 @@
 import time
+from typing import Optional
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from .base import BaseBackend
@@ -10,11 +11,24 @@ class SQLBackend(BaseBackend):
     to guarantee atomicity in distributed environments. Supports both Token Bucket
     and GCRA Leaky Bucket algorithms.
     """
-    def __init__(self, engine: AsyncEngine, table_name: str = "throttlekit_buckets"):
+    def __init__(
+        self,
+        engine: AsyncEngine,
+        table_name: str = "throttlekit_buckets",
+        schema: Optional[str] = None
+    ):
         self.engine = engine
         self.table_name = table_name
+        self.schema = schema
         self._table_created = False
         self._leaky_table_created = False
+
+        if schema:
+            self.full_table_name = f"{schema}.{table_name}"
+            self.full_leaky_table_name = f"{schema}.{table_name}_leaky"
+        else:
+            self.full_table_name = table_name
+            self.full_leaky_table_name = f"{table_name}_leaky"
 
     async def _ensure_table(self):
         if self._table_created:
@@ -22,7 +36,7 @@ class SQLBackend(BaseBackend):
         async with self.engine.begin() as conn:
             # Create a table for tracking token bucket states
             await conn.execute(text(f"""
-                CREATE TABLE IF NOT EXISTS {self.table_name} (
+                CREATE TABLE IF NOT EXISTS {self.full_table_name} (
                     key VARCHAR(255) PRIMARY KEY,
                     tokens DOUBLE PRECISION NOT NULL,
                     last_refilled DOUBLE PRECISION NOT NULL
@@ -36,7 +50,7 @@ class SQLBackend(BaseBackend):
         async with self.engine.begin() as conn:
             # Create a table for tracking leaky bucket tat states
             await conn.execute(text(f"""
-                CREATE TABLE IF NOT EXISTS {self.table_name}_leaky (
+                CREATE TABLE IF NOT EXISTS {self.full_leaky_table_name} (
                     key VARCHAR(255) PRIMARY KEY,
                     tat DOUBLE PRECISION NOT NULL
                 )
@@ -58,7 +72,7 @@ class SQLBackend(BaseBackend):
             async with session.begin():
                 # SQLite doesn't support SELECT ... FOR UPDATE, but its file-based locking
                 # makes it unnecessary since it locks the database for write transactions.
-                select_sql = f"SELECT tokens, last_refilled FROM {self.table_name} WHERE key = :key"
+                select_sql = f"SELECT tokens, last_refilled FROM {self.full_table_name} WHERE key = :key"
                 if self.engine.dialect.name != "sqlite":
                     select_sql += " FOR UPDATE"
 
@@ -69,7 +83,7 @@ class SQLBackend(BaseBackend):
                     tokens = float(max_tokens)
                     last_refilled = now
                     await session.execute(text(f"""
-                        INSERT INTO {self.table_name} (key, tokens, last_refilled)
+                        INSERT INTO {self.full_table_name} (key, tokens, last_refilled)
                         VALUES (:key, :tokens, :last_refilled)
                     """), {"key": key, "tokens": tokens, "last_refilled": last_refilled})
                 else:
@@ -81,7 +95,7 @@ class SQLBackend(BaseBackend):
                 if tokens >= requested:
                     tokens -= requested
                     await session.execute(text(f"""
-                        UPDATE {self.table_name}
+                        UPDATE {self.full_table_name}
                         SET tokens = :tokens, last_refilled = :last_refilled
                         WHERE key = :key
                     """), {"key": key, "tokens": tokens, "last_refilled": now})
@@ -91,7 +105,7 @@ class SQLBackend(BaseBackend):
                     wait_time = missing / refill_rate
                     # Update bucket state to save refilled tokens
                     await session.execute(text(f"""
-                        UPDATE {self.table_name}
+                        UPDATE {self.full_table_name}
                         SET tokens = :tokens, last_refilled = :last_refilled
                         WHERE key = :key
                     """), {"key": key, "tokens": tokens, "last_refilled": now})
@@ -110,7 +124,7 @@ class SQLBackend(BaseBackend):
 
         async with AsyncSession(self.engine) as session:
             async with session.begin():
-                select_sql = f"SELECT tat FROM {self.table_name}_leaky WHERE key = :key"
+                select_sql = f"SELECT tat FROM {self.full_leaky_table_name} WHERE key = :key"
                 if self.engine.dialect.name != "sqlite":
                     select_sql += " FOR UPDATE"
 
@@ -120,7 +134,7 @@ class SQLBackend(BaseBackend):
                 if row is None:
                     tat = now
                     await session.execute(text(f"""
-                        INSERT INTO {self.table_name}_leaky (key, tat)
+                        INSERT INTO {self.full_leaky_table_name} (key, tat)
                         VALUES (:key, :tat)
                     """), {"key": key, "tat": tat})
                 else:
@@ -136,7 +150,7 @@ class SQLBackend(BaseBackend):
                 else:
                     # Success. Update TAT.
                     await session.execute(text(f"""
-                        UPDATE {self.table_name}_leaky
+                        UPDATE {self.full_leaky_table_name}
                         SET tat = :tat
                         WHERE key = :key
                     """), {"key": key, "tat": new_tat})

@@ -302,3 +302,17 @@ async def test_distributed_logger_input():
     assert lb._logger is my_logger
 
 
+async def test_sql_backend_schema():
+    from sqlalchemy.ext.asyncio import create_async_engine
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    
+    backend = SQLBackend(engine, table_name="custom_table", schema="custom_schema")
+    assert backend.schema == "custom_schema"
+    assert backend.table_name == "custom_table"
+    assert backend.full_table_name == "custom_schema.custom_table"
+    assert backend.full_leaky_table_name == "custom_schema.custom_table_leaky"
+    
+    await engine.dispose()
+
+
+
