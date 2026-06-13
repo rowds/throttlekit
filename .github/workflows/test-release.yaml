@@ -1,9 +1,7 @@
 name: Release to Test PyPI
 
-# on:
-#   push:
-#     branches:
-#       - "dev"
+on:
+  workflow_dispatch:
 
 permissions:
   id-token: write
