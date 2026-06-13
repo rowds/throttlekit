@@ -1,160 +1,128 @@
 # 🔄 throttlekit
 
-A lightweight, asyncio-based rate limiting library for Python that provides flexible and efficient rate limiting solutions.
+[![PyPI Version](https://img.shields.io/pypi/v/throttlekit.svg)](https://pypi.org/project/throttlekit/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Build Status](https://github.com/rowds/throttlekit/actions/workflows/test.yaml/badge.svg)](https://github.com/rowds/throttlekit/actions)
 
-## 📋 Overview
+A lightweight, high-performance, and feature-rich asyncio rate limiting library for Python. Fully supports local (in-memory) and distributed (Redis, SQL) deployments, with first-class support for FastAPI.
 
-**throttlekit** offers two proven rate limiting algorithms:
+---
 
-- **⚡ TokenBucketRateLimiter**: Allows controlled bursts of activity
-- **💧 LeakyBucketRateLimiter**: Enforces a strict, steady rate
+## 🚀 Key Features
 
-Perfect for API throttling, web scrapers, background jobs, and queue management.
+* ⚡ **Two Algorithms:** Token Bucket (bursts-tolerant) and Leaky Bucket / GCRA (steady pacing).
+* 🌐 **Distributed Support:** Redis (atomic Lua script) and SQL (Alchemy-compatible row-level locking).
+* 🛣️ **Multiple Usage Patterns:** Decorators (`@limit`), context managers (`async with`), or manual `.acquire()`.
+* ⚡ **FastAPI Ready:** Clean route dependencies (`Depends`) and global middleware options.
+* 🚦 **Concurrency Limits:** Enforce concurrent call limits alongside rate limits.
+* 🛡️ **Graceful Shutdown:** `stop()` method to cleanly cancel background tasks.
 
-## 🚀 Features
-
-- ✅ **Two proven algorithms**: Token Bucket (burst-tolerant) and Leaky Bucket (evenly-paced)
-- ✅ **Multiple usage patterns**: `@decorator`, `async with`, and manual `.acquire()`
-- ✅ **Concurrency control**: Optional `concurrency_limit` parameter
-- ✅ **High performance**: Low-overhead design optimized for async workloads
-- ✅ **asyncio integration**: Works seamlessly with `asyncio.gather()` and `TaskGroup`
+---
 
 ## ⚙️ Installation
 
-### Using uv (recommended)
-
 ```bash
+# Core in-memory limiters
 uv add throttlekit
+
+# With optional Redis / SQL / FastAPI support
+uv add "throttlekit[redis,sql,fastapi]"
 ```
 
-### Using pip
+---
 
-```bash
-pip install throttlekit
-```
+## 🛠️ Usage Patterns
 
-## ✨ Quick Start
-
-```python
-import asyncio
-from throttlekit import TokenBucketRateLimiter
-
-# Create a rate limiter (5 tokens, refill every second)
-limiter = TokenBucketRateLimiter(max_tokens=5, refill_interval=1.0)
-
-@limiter.limit
-async def call_api(i):
-    await asyncio.sleep(0.2)
-    return f"Request {i} completed"
-
-async def main():
-    await limiter.start()
-    
-    # Process 10 requests with rate limiting
-    results = await asyncio.gather(*(call_api(i) for i in range(10)))
-    print(results)
-    
-    await limiter.stop()
-
-# Run the example
-asyncio.run(main())
-```
-
-## 🧠 Which Limiter Should I Use?
-
-| Use Case | Recommended Limiter | Why? |
-|----------|-------------------|------|
-| Allow short bursts (e.g., 5 calls at once) |  **Token Bucket** | Accumulates tokens for burst capacity |
-| Require steady pacing (e.g., 1 call/sec max) |  **Leaky Bucket** | Maintains consistent rate |
-| Queue smoothing, task draining |  **Leaky Bucket** | FIFO processing at fixed rate |
-| Per-user or per-key API quotas |  **Token Bucket** | Flexible burst handling |
-
-## Rate Limiters
-
-### TokenBucketRateLimiter
-
-Allows bursts up to `max_tokens`, then refills at a steady rate.
-
-```python
-from throttlekit import TokenBucketRateLimiter
-
-limiter = TokenBucketRateLimiter(
-    max_tokens=10,           # Maximum burst size
-    refill_interval=1.0,     # Refill every second
-    concurrency_limit=5      # Optional: limit concurrent operations
-)
-```
-
-**Supports:**
-
-- `@limiter.limit` decorator
-- `async with limiter` context manager  
-- `await limiter.acquire()` manual usage
-- `await limiter.stop()` graceful shutdown
-
-### 💧 LeakyBucketRateLimiter
-
-Processes requests at a fixed rate, queuing excess requests.
-
-```python
-from throttlekit import LeakyBucketRateLimiter
-
-limiter = LeakyBucketRateLimiter(
-    rate=2.0,              # 2 requests per second
-    max_queue_size=100     # Maximum queued requests
-)
-```
-
-**Behavior:**
-
-- Drains 1 request every `1/rate` seconds in FIFO order
-- Queued requests are processed at a fixed rate
-- Bursts are automatically queued (up to `max_queue_size`)
-- Call `await limiter.stop()` to gracefully shut down the drain loop
-
-## 📘 Usage Examples
+Both local and distributed limiters support these three standard async patterns:
 
 ### 1️⃣ Decorator Pattern
-
 ```python
-@limiter.limit
-async def fetch_data(url):
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
-            return await response.json()
+# Rate limit dynamically by a callable key (useful for distributed limits)
+@limiter.limit(key=lambda request: request.headers.get("X-API-Key"), block=False)
+async def process_task(request):
+    return "succeeded"
 ```
 
 ### 2️⃣ Context Manager
-
 ```python
-async with limiter:
-    result = await expensive_operation()
-    return result
+async with limiter(key="my-bucket"):
+    result = await perform_action()
 ```
 
 ### 3️⃣ Manual Control
-
 ```python
 await limiter.acquire()
-try:
-    result = await do_work()
-finally:
-    limiter.release_semaphore()  # If using concurrency_limit
 ```
 
-## 🧪 Testing
+---
 
-Install test dependencies:
+## ⚡ Core Rate Limiters
 
-```bash
-uv pip install pytest pytest-asyncio
+### 1. In-Memory Limiters (Single Instance)
+
+```python
+from throttlekit import TokenBucketRateLimiter, LeakyBucketRateLimiter
+
+# Token Bucket: 10 requests every 60 seconds with a concurrency limit of 5
+limiter = TokenBucketRateLimiter(max_tokens=10, refill_interval=60.0, concurrency_limit=5)
+await limiter.start()
+
+# Leaky Bucket: 2 requests per second max, queuing up to 100 requests
+leaky_limiter = LeakyBucketRateLimiter(rate=2.0, max_queue_size=100)
+await leaky_limiter.start()
+
+# Clean up on shutdown
+await limiter.stop()
 ```
 
-Run tests with coverage:
+### 2. Distributed Limiters (Multi-Container Deployments)
 
-```bash
-pytest --cov=src/throttlekit --cov-report=term-missing
+```python
+import redis.asyncio as aioredis
+from throttlekit import DistributedTokenBucket, DistributedLeakyBucket, RedisBackend
+
+redis_client = aioredis.from_url("redis://localhost")
+backend = RedisBackend(redis_client)
+
+# Token Bucket (Redis-backed)
+tb_limiter = DistributedTokenBucket(backend, max_tokens=10, refill_interval=60.0)
+
+# Leaky Bucket (GCRA algorithm, Redis-backed)
+lb_limiter = DistributedLeakyBucket(backend, rate=5.0, max_queue_size=10)
 ```
+
+> [!NOTE]
+> For SQL databases (PostgreSQL, MySQL, SQLite), import and use `SQLBackend` configured with a SQLAlchemy `AsyncEngine`.
+
+---
+
+## 🌐 FastAPI & Starlette Integration
+
+### 1️⃣ Route-level Dependency
+Use `FastAPIRateLimiter` to apply rates per route. Supports blocking (throttling) or returning `HTTP 429` immediately:
+
+```python
+from fastapi import FastAPI, Depends
+from throttlekit.fastapi import FastAPIRateLimiter
+
+app = FastAPI()
+
+# block=False immediately rejects with HTTP 429 if the rate limit is exceeded
+@app.get("/data", dependencies=[Depends(FastAPIRateLimiter(tb_limiter, block=False))])
+async def get_data():
+    return {"status": "ok"}
+```
+
+### 2️⃣ Global Application Middleware
+Protect all routes globally at the application level:
+
+```python
+from throttlekit.fastapi import RateLimitMiddleware
+
+app.add_middleware(RateLimitMiddleware, limiter=tb_limiter, block=False)
+```
+
+---
 
 ## 📁 Project Structure
 
@@ -163,26 +131,34 @@ throttlekit/
 ├── src/
 │   └── throttlekit/
 │       ├── __init__.py
-│       ├── limiter.py           # TokenBucketRateLimiter
-│       └── leaky_limiter.py     # LeakyBucketRateLimiter
+│       ├── limiter.py           # In-memory Token Bucket
+│       ├── leaky_limiter.py     # In-memory Leaky Bucket
+│       ├── distributed.py       # Distributed Token & Leaky Buckets
+│       ├── fastapi.py           # FastAPI dependency and middleware
+│       └── backends/            # Storage backends
+│           ├── base.py
+│           ├── redis.py         # Redis Lua-based backend
+│           └── sql.py           # SQL/SQLAlchemy database backend
 ├── tests/
 │   ├── test_token_bucket_limiter.py
-│   └── test_leaky_bucket_limiter.py
+│   ├── test_leaky_bucket_limiter.py
+│   ├── test_fastapi.py
+│   └── test_distributed.py
 ├── pyproject.toml
-├── README.md
-└── LICENSE
+└── README.md
 ```
+
+---
+
+## 🧪 Testing
+
+```bash
+uv pip install pytest pytest-asyncio pytest-cov
+pytest --cov=src/throttlekit --cov-report=term-missing
+```
+
+---
 
 ## 📜 License
 
 MIT License © [Roudrasekhar Majumder](https://github.com/rowds)
-
-## 🙋 Contributing
-
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for detailed setup instructions and guidelines.
-
----
-
-**⭐ Star this repo if you find it useful!**
-
-[Report Bug](https://github.com/rowds/throttlekit/issues) • [Request Feature](https://github.com/rowds/throttlekit/issues) • [Documentation](https://github.com/rowds/throttlekit)
