@@ -19,21 +19,44 @@ class TokenBucketRateLimiter:
         concurrency_limit: Optional[int] = None,
         logger: Optional[logging.Logger] = None
     ) -> None:
+        if max_tokens <= 0:
+            raise ValueError("max_tokens must be > 0")
+        if refill_interval <= 0:
+            raise ValueError("refill_interval must be > 0")
+        if concurrency_limit is not None and concurrency_limit <= 0:
+            raise ValueError("concurrency_limit must be > 0")
+
         self.max_tokens: int = max_tokens
         self.refill_interval: float = refill_interval
         self.bucket: asyncio.Queue[int] = asyncio.Queue(maxsize=max_tokens)
         self.semaphore: Optional[asyncio.Semaphore] = asyncio.Semaphore(concurrency_limit) if concurrency_limit else None
-        self.started: bool = False
-        self.logger: logging.Logger = logger or logging.getLogger(__name__)
+        self._started: bool = False
+        self._logger: logging.Logger = logger or logging.getLogger(__name__)
+        self._refill_task: Optional[asyncio.Task[None]] = None
 
     async def start(self) -> None:
-        if self.started:
+        """Start the rate limiter and begin refilling tokens."""
+        if self._started:
             return
-        self.started = True
+        self._started = True
         for _ in range(self.max_tokens):
             self.bucket.put_nowait(1)
-        asyncio.create_task(self._refill())
-        self.logger.debug("Rate limiter started with %d tokens", self.max_tokens)
+        self._refill_task = asyncio.create_task(self._refill())
+        self._logger.debug("Rate limiter started with %d tokens", self.max_tokens)
+
+    async def stop(self) -> None:
+        """Stop the rate limiter and cancel the refill task."""
+        if not self._started:
+            return
+        self._started = False
+        if self._refill_task is not None:
+            self._refill_task.cancel()
+            try:
+                await self._refill_task
+            except asyncio.CancelledError:
+                pass
+            self._refill_task = None
+        self._logger.debug("Rate limiter stopped")
 
     async def _refill(self) -> None:
         while True:
@@ -45,7 +68,7 @@ class TokenBucketRateLimiter:
                     break
 
     async def acquire(self) -> None:
-        if not self.started:
+        if not self._started:
             raise RuntimeError("RateLimiter not started. Call await limiter.start() before use.")
         await self.bucket.get()
         if self.semaphore:

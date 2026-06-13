@@ -116,8 +116,7 @@ async def test_future_already_done():
     await limiter.start()
     
     # Create a future and cancel it before it gets processed
-    import asyncio
-    fut = asyncio.get_event_loop().create_future()
+    fut = asyncio.get_running_loop().create_future()
     fut.cancel()  # This makes fut.done() return True
     
     # Put the cancelled future in the queue
@@ -128,3 +127,29 @@ async def test_future_already_done():
     
     # The drain loop should handle the already-done future gracefully
     assert fut.done()
+
+
+async def test_invalid_max_queue_size():
+    """Test that invalid max_queue_size raises ValueError"""
+    with pytest.raises(ValueError, match="max_queue_size must be > 0"):
+        LeakyBucketRateLimiter(rate=1.0, max_queue_size=0)
+    with pytest.raises(ValueError, match="max_queue_size must be > 0"):
+        LeakyBucketRateLimiter(rate=1.0, max_queue_size=-1)
+
+
+async def test_stop():
+    """Test that stop cancels the drain task cleanly."""
+    limiter = LeakyBucketRateLimiter(rate=1.0)
+    await limiter.start()
+    assert limiter._started is True
+    assert limiter._drain_task is not None
+
+    await limiter.stop()
+    assert limiter._started is False
+    assert limiter._drain_task is None
+
+
+async def test_stop_idempotent():
+    """Calling stop() when not started should be a no-op."""
+    limiter = LeakyBucketRateLimiter(rate=1.0)
+    await limiter.stop()  # Should not raise

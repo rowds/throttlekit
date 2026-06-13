@@ -168,3 +168,45 @@ async def test_refill_queue_full_exception():
     
     # Verify the limiter still works
     await limiter.acquire()
+
+
+async def test_stop():
+    """Test that stop cancels the refill task cleanly."""
+    limiter = TokenBucketRateLimiter(max_tokens=2, refill_interval=0.1)
+    await limiter.start()
+    assert limiter._started is True
+    assert limiter._refill_task is not None
+
+    await limiter.stop()
+    assert limiter._started is False
+    assert limiter._refill_task is None
+
+
+async def test_stop_idempotent():
+    """Calling stop() when not started should be a no-op."""
+    limiter = TokenBucketRateLimiter(max_tokens=1)
+    await limiter.stop()  # Should not raise
+
+
+async def test_invalid_max_tokens():
+    """max_tokens <= 0 should raise ValueError."""
+    with pytest.raises(ValueError, match="max_tokens must be > 0"):
+        TokenBucketRateLimiter(max_tokens=0)
+    with pytest.raises(ValueError, match="max_tokens must be > 0"):
+        TokenBucketRateLimiter(max_tokens=-1)
+
+
+async def test_invalid_refill_interval():
+    """refill_interval <= 0 should raise ValueError."""
+    with pytest.raises(ValueError, match="refill_interval must be > 0"):
+        TokenBucketRateLimiter(max_tokens=1, refill_interval=0)
+    with pytest.raises(ValueError, match="refill_interval must be > 0"):
+        TokenBucketRateLimiter(max_tokens=1, refill_interval=-1.0)
+
+
+async def test_invalid_concurrency_limit():
+    """concurrency_limit <= 0 should raise ValueError."""
+    with pytest.raises(ValueError, match="concurrency_limit must be > 0"):
+        TokenBucketRateLimiter(max_tokens=1, concurrency_limit=0)
+    with pytest.raises(ValueError, match="concurrency_limit must be > 0"):
+        TokenBucketRateLimiter(max_tokens=1, concurrency_limit=-1)

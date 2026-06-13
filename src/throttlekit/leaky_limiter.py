@@ -20,6 +20,8 @@ class LeakyBucketRateLimiter:
     ) -> None:
         if rate <= 0:
             raise ValueError("rate must be > 0")
+        if max_queue_size <= 0:
+            raise ValueError("max_queue_size must be > 0")
         self.leak_interval = 1.0 / rate  # convert to delay between each request
         self.queue: asyncio.Queue[asyncio.Future[None]] = asyncio.Queue(maxsize=max_queue_size)
         self._started = False
@@ -33,6 +35,20 @@ class LeakyBucketRateLimiter:
         self._drain_task = asyncio.create_task(self._drain_loop())
         self._logger.debug("LeakyBucket started with leak_interval=%s", self.leak_interval)
 
+    async def stop(self) -> None:
+        """Stop the drain loop and cancel pending requests."""
+        if not self._started:
+            return
+        self._started = False
+        if self._drain_task is not None:
+            self._drain_task.cancel()
+            try:
+                await self._drain_task
+            except asyncio.CancelledError:
+                pass
+            self._drain_task = None
+        self._logger.debug("LeakyBucket stopped")
+
     async def _drain_loop(self) -> None:
         while True:
             fut = await self.queue.get()
@@ -43,7 +59,7 @@ class LeakyBucketRateLimiter:
     async def acquire(self) -> None:
         if not self._started:
             raise RuntimeError("LeakyBucket not started. Call await limiter.start() before use.")
-        fut: asyncio.Future[None] = asyncio.get_event_loop().create_future()
+        fut: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         await self.queue.put(fut)
         await fut
 

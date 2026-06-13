@@ -33,3 +33,4 @@ Run tests with coverage:
 
 ```bash
 pytest --cov=src/throttlekit --cov-report=term-missing
+```

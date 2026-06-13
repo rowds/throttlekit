@@ -53,6 +53,8 @@ async def main():
     # Process 10 requests with rate limiting
     results = await asyncio.gather(*(call_api(i) for i in range(10)))
     print(results)
+    
+    await limiter.stop()
 
 # Run the example
 asyncio.run(main())
@@ -88,6 +90,7 @@ limiter = TokenBucketRateLimiter(
 - `@limiter.limit` decorator
 - `async with limiter` context manager  
 - `await limiter.acquire()` manual usage
+- `await limiter.stop()` graceful shutdown
 
 ### 💧 LeakyBucketRateLimiter
 
@@ -107,6 +110,7 @@ limiter = LeakyBucketRateLimiter(
 - Drains 1 request every `1/rate` seconds in FIFO order
 - Queued requests are processed at a fixed rate
 - Bursts are automatically queued (up to `max_queue_size`)
+- Call `await limiter.stop()` to gracefully shut down the drain loop
 
 ## 📘 Usage Examples
 
@@ -135,7 +139,6 @@ await limiter.acquire()
 try:
     result = await do_work()
 finally:
-    limiter.release_token()      # For TokenBucket
     limiter.release_semaphore()  # If using concurrency_limit
 ```
 
